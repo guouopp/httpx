@@ -16,7 +16,13 @@ httpx is a fast and multi-purpose HTTP toolkit allow to run multiple probers usi
 - [Installation Instructions](#installation-instructions)
     - [From Binary](#from-binary)
     - [From Source](#from-source)
-- [Running httpx](#running-httpx-to-probe-7614-hosts)
+- [Running httpX to probe `7614` hosts](#running-httpx-to-probe-7614-hosts)
+    - [Running httpx with stdin](#running-httpx-with-stdin)
+    - [Running httpx with file input](#running-httpx-with-file-input)
+    - [Running httpx with CIDR input](#running-httpx-with-cidr-input)
+    - [Using httpX with subfinder/chaos and any other similar tool.](#using-httpx-with-subfinderchaos-and-any-other-similar-tool)
+    - [Running httpX with json output](#running-httpx-with-json-output)
+  - [Todo](#todo)
 - [Thanks](#thanks)
 
  # Features
@@ -41,11 +47,11 @@ httpx -h
 
 This will display help for the tool. Here are all the switches it supports.
 
-| Flag               | Description                                           | Example                                            |
-|------------------- |-------------------------------------------------------|----------------------------------------------------|
+| Flag                    | Description                                           | Example                                            |
+|------------------------ |-------------------------------------------------------|----------------------------------------------------|
 | -H                 | Custom Header input                                   | httpx -H 'x-bug-bounty: hacker'                    |
 | -follow-redirects  | Follow URL redirects (default false)                  | httpx -follow-redirects                            |
-| -follow-host-redirects  | Follow URL redirects only when staying on the same host (default false)  | httpx -follow-host-redirects                                                                                                                         |
+| -follow-host-redirects  | Follow URL redirects only when staying on the same host (default false)  | httpx -follow-host-redirects|
 | -http-proxy        | URL of the proxy server                               | httpx -http-proxy hxxp://proxy-host:80             |
 | -l                 | File containing host/urls to process                  | httpx -l hosts.txt                                |
 | -l                 | File containing CIDR to process                       | httpx -l cidr.txt                                |
@@ -55,10 +61,10 @@ This will display help for the tool. Here are all the switches it supports.
 | -vhost             | Probes to detect vhost from list of subdomains        | httpx -vhost                                       |
 | -threads           | Number of threads (default 50)                        | httpx - threads 100                                |
 | -ports             | Ports ranges to probe (nmap syntax: eg 1,2-10,11)     | httpx -ports 80,443,100-200                        |
-| -title             | Prints title of page if available                      | httpx -title                                       |
+| -title             | Prints title of page if available                     | httpx -title                                       |
 | -content-length    | Prints content length in the output                   | httpx -content-length                              |
-| -status-code       | Prints status code in the output                    | httpx -status-code                                 |
-| -web-server       | Prints running web sever if available                 | httpx -web-server                               |
+| -status-code       | Prints status code in the output                      | httpx -status-code                                 |
+| -web-server        | Prints running web sever if available                 | httpx -web-server                               |
 | -store-response    | Store response as domain.txt                          | httpx -store-response                              |
 | -store-response-dir| Directory to store response (default current path)    | httpx -store-response-dir output                   | 
 | -retries           | Number of retries                                     | httpx -retries                                     |
@@ -67,7 +73,8 @@ This will display help for the tool. Here are all the switches it supports.
 | -verbose           | Verbose Mode                                          | httpx -verbose                                     |
 | -version           | Prints current version of the httpx                   | httpx -version                                     |
 | -x                 | Request Method (default 'GET')                        | httpx -x HEAD                                      |
-| -response-in-stdout  | Include response in stdout (only works with -json)   | httpx -response-in-stdout                         |
+| -response-in-json  | Include response in stdout (only works with -json)    | httpx -response-in-json                       |
+| -websocket         | Prints if a websocket is exposed                      | httpx -websocket                         |
 
 
 # Installation Instructions
