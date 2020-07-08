@@ -32,6 +32,7 @@ func main() {
 	httpxOptions.RetryMax = options.Retries
 	httpxOptions.FollowRedirects = options.FollowRedirects
 	httpxOptions.FollowHostRedirects = options.FollowHostRedirects
+	httpxOptions.HttpProxy = options.HttpProxy
 
 	httpxOptions.CustomHeaders = make(map[string]string)
 	for _, customHeader := range options.CustomHeaders {
@@ -388,7 +389,7 @@ func ParseOptions() *Options {
 	flag.StringVar(&options.StoreResponseDir, "store-response-dir", ".", "Store Response Directory (default current directory)")
 	flag.BoolVar(&options.FollowRedirects, "follow-redirects", false, "Follow Redirects")
 	flag.BoolVar(&options.FollowHostRedirects, "follow-host-redirects", false, "Only follow redirects on the same host")
-	flag.StringVar(&options.HttpProxy, "http-proxy", "", "Http Proxy")
+	flag.StringVar(&options.HttpProxy, "http-proxy", "", "Http Proxy, eg http://127.0.0.1:8080")
 	flag.BoolVar(&options.JSONOutput, "json", false, "JSON Output")
 	flag.StringVar(&options.InputFile, "l", "", "File containing domains")
 	flag.StringVar(&options.Method, "x", "GET", "Request Method")
@@ -442,11 +443,11 @@ const banner = `
   / __ \/ __/ __/ __ \|   / 
  / / / / /_/ /_/ /_/ /   |  
 /_/ /_/\__/\__/ .___/_/|_|  
-             /_/            
+             /_/              v1           
 `
 
 // Version is the current version of httpx
-const Version = `0.0.4`
+const Version = `0.0.5`
 
 // showBanner is used to show the banner to the user
 func showBanner() {
