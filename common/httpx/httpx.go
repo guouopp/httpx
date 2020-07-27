@@ -92,14 +92,12 @@ func New(options *Options) (*HTTPX, error) {
 
 // Do http request
 func (h *HTTPX) Do(req *retryablehttp.Request) (*Response, error) {
-	var (
-		resp Response
-	)
 	httpresp, err := h.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 
+	var resp Response
 	resp.Headers = httpresp.Header.Clone()
 
 	// httputil.DumpResponse does not handle websockets
@@ -135,6 +133,9 @@ func (h *HTTPX) Do(req *retryablehttp.Request) (*Response, error) {
 	resp.Words = len(strings.Split(respbodystr, " "))
 	// number of lines
 	resp.Lines = len(strings.Split(respbodystr, "\n"))
+
+	// extracts TLS data if any
+	resp.TlsData = h.TlsGrab(httpresp)
 
 	return &resp, nil
 }
@@ -174,6 +175,8 @@ func (h *HTTPX) NewRequest(method, URL string) (req *retryablehttp.Request, err 
 
 	// set default user agent
 	req.Header.Set("User-Agent", h.Options.DefaultUserAgent)
+	// set default encoding to accept utf8
+	req.Header.Add("Accept-Charset", "utf-8")
 	return
 }
 
@@ -181,5 +184,9 @@ func (h *HTTPX) NewRequest(method, URL string) (req *retryablehttp.Request, err 
 func (h *HTTPX) SetCustomHeaders(r *retryablehttp.Request, headers map[string]string) {
 	for name, value := range headers {
 		r.Header.Set(name, value)
+		// host header is particular
+		if strings.ToLower(name) == "host" {
+			r.Host = value
+		}
 	}
 }
