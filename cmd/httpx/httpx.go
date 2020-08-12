@@ -19,6 +19,7 @@ import (
 	"github.com/projectdiscovery/httpx/common/fileutil"
 	"github.com/projectdiscovery/httpx/common/httpx"
 	"github.com/projectdiscovery/httpx/common/iputil"
+	"github.com/projectdiscovery/httpx/common/slice"
 	"github.com/projectdiscovery/httpx/common/stringz"
 	"github.com/remeh/sizedwaitgroup"
 )
@@ -68,9 +69,11 @@ func main() {
 	scanopts.ResponseInStdout = options.responseInStdout
 	scanopts.OutputWebSocket = options.OutputWebSocket
 	scanopts.TlsProbe = options.TLSProbe
+	scanopts.RequestURI = options.RequestURI
+	scanopts.OutputContentType = options.OutputContentType
 
 	// Try to create output folder if it doesnt exist
-	if options.StoreResponse && options.StoreResponseDir != "" && options.StoreResponseDir != "." {
+	if options.StoreResponse && !fileutil.FolderExists(options.StoreResponseDir) {
 		if err := os.MkdirAll(options.StoreResponseDir, os.ModePerm); err != nil {
 			gologger.Fatalf("Could not create output directory '%s': %s\n", options.StoreResponseDir, err)
 		}
@@ -96,6 +99,21 @@ func main() {
 			if r.err != nil {
 				continue
 			}
+
+			// apply matchers and filters
+			if len(options.filterStatusCode) > 0 && slice.IntSliceContains(options.filterStatusCode, r.StatusCode) {
+				continue
+			}
+			if len(options.filterContentLength) > 0 && slice.IntSliceContains(options.filterContentLength, r.ContentLength) {
+				continue
+			}
+			if len(options.matchStatusCode) > 0 && !slice.IntSliceContains(options.matchStatusCode, r.StatusCode) {
+				continue
+			}
+			if len(options.matchContentLength) > 0 && !slice.IntSliceContains(options.matchContentLength, r.ContentLength) {
+				continue
+			}
+
 			row := r.str
 			if options.JSONOutput {
 				row = r.JSON()
@@ -226,12 +244,14 @@ type scanOptions struct {
 	OutputWithNoColor      bool
 	ResponseInStdout       bool
 	TlsProbe               bool
+	RequestURI             string
+	OutputContentType      bool
 }
 
 func analyze(hp *httpx.HTTPX, protocol string, domain string, port int, scanopts *scanOptions) Result {
 	retried := false
 retry:
-	URL := fmt.Sprintf("%s://%s", protocol, domain)
+	URL := fmt.Sprintf("%s://%s%s", protocol, domain, scanopts.RequestURI)
 	if port > 0 {
 		URL = fmt.Sprintf("%s:%d", URL, port)
 	}
@@ -261,9 +281,9 @@ retry:
 
 	if resp.StatusCode >= 0 {
 		if port > 0 {
-			fullURL = fmt.Sprintf("%s://%s:%d", protocol, domain, port)
+			fullURL = fmt.Sprintf("%s://%s:%d%s", protocol, domain, port, scanopts.RequestURI)
 		} else {
-			fullURL = fmt.Sprintf("%s://%s", protocol, domain)
+			fullURL = fmt.Sprintf("%s://%s%s", protocol, domain, scanopts.RequestURI)
 		}
 	}
 
@@ -297,6 +317,16 @@ retry:
 			builder.WriteString(aurora.Magenta(strconv.Itoa(resp.ContentLength)).String())
 		} else {
 			builder.WriteString(strconv.Itoa(resp.ContentLength))
+		}
+		builder.WriteRune(']')
+	}
+
+	if scanopts.OutputContentType {
+		builder.WriteString(" [")
+		if !scanopts.OutputWithNoColor {
+			builder.WriteString(aurora.Magenta(resp.GetHeaderPart("Content-Type", ";")).String())
+		} else {
+			builder.WriteString(resp.GetHeaderPart("Content-Type", ";"))
 		}
 		builder.WriteRune(']')
 	}
@@ -339,7 +369,7 @@ retry:
 
 	// store responses in directory
 	if scanopts.StoreResponse {
-		var domainFile = strings.Replace(domain, "/", "_", -1) + ".txt"
+		var domainFile = strings.Replace(domain+scanopts.RequestURI, "/", "_", -1) + ".txt"
 		responsePath := path.Join(scanopts.StoreResponseDirectory, domainFile)
 		err := ioutil.WriteFile(responsePath, []byte(resp.Raw), 0644)
 		if err != nil {
@@ -351,6 +381,7 @@ retry:
 		URL:           fullURL,
 		ContentLength: resp.ContentLength,
 		StatusCode:    resp.StatusCode,
+		ContentType:   resp.GetHeaderPart("Content-Type", ";"),
 		Title:         title,
 		str:           builder.String(),
 		VHost:         isvhost,
@@ -373,6 +404,7 @@ type Result struct {
 	WebServer     string         `json:"webserver"`
 	Response      string         `json:"serverResponse,omitempty"`
 	WebSocket     bool           `json:"websocket,omitempty"`
+	ContentType   string         `json:"content-type,omitempty"`
 	TlsData       *httpx.TlsData `json:"tls,omitempty"`
 }
 
@@ -387,35 +419,45 @@ func (r *Result) JSON() string {
 
 // Options contains configuration options for chaos client.
 type Options struct {
-	RawRequestFile      string
-	VHost               bool
-	Smuggling           bool
-	ExtractTitle        bool
-	StatusCode          bool
-	ContentLength       bool
-	Retries             int
-	Threads             int
-	Timeout             int
-	CustomHeaders       customheader.CustomHeaders
-	CustomPorts         customport.CustomPorts
-	Output              string
-	FollowRedirects     bool
-	StoreResponse       bool
-	StoreResponseDir    string
-	HttpProxy           string
-	SocksProxy          string
-	JSONOutput          bool
-	InputFile           string
-	Method              string
-	Silent              bool
-	Version             bool
-	Verbose             bool
-	NoColor             bool
-	OutputServerHeader  bool
-	OutputWebSocket     bool
-	responseInStdout    bool
-	FollowHostRedirects bool
-	TLSProbe            bool
+	RawRequestFile            string
+	VHost                     bool
+	Smuggling                 bool
+	ExtractTitle              bool
+	StatusCode                bool
+	ContentLength             bool
+	Retries                   int
+	Threads                   int
+	Timeout                   int
+	CustomHeaders             customheader.CustomHeaders
+	CustomPorts               customport.CustomPorts
+	Output                    string
+	FollowRedirects           bool
+	StoreResponse             bool
+	StoreResponseDir          string
+	HttpProxy                 string
+	SocksProxy                string
+	JSONOutput                bool
+	InputFile                 string
+	Method                    string
+	Silent                    bool
+	Version                   bool
+	Verbose                   bool
+	NoColor                   bool
+	OutputServerHeader        bool
+	OutputWebSocket           bool
+	responseInStdout          bool
+	FollowHostRedirects       bool
+	TLSProbe                  bool
+	RequestURI                string
+	OutputContentType         bool
+	OutputMatchStatusCode     string
+	matchStatusCode           []int
+	OutputMatchContentLength  string
+	matchContentLength        []int
+	OutputFilterStatusCode    string
+	filterStatusCode          []int
+	OutputFilterContentLength string
+	filterContentLength       []int
 }
 
 // ParseOptions parses the command line options for application
@@ -428,15 +470,15 @@ func ParseOptions() *Options {
 	flag.StringVar(&options.Output, "o", "", "File to write output to (optional)")
 	flag.BoolVar(&options.VHost, "vhost", false, "Check for VHOSTs")
 	flag.BoolVar(&options.ExtractTitle, "title", false, "Extracts title")
-	flag.BoolVar(&options.StatusCode, "status-code", false, "Extracts Status Code")
+	flag.BoolVar(&options.StatusCode, "status-code", false, "Extracts status code")
 	flag.Var(&options.CustomHeaders, "H", "Custom Header")
 	flag.Var(&options.CustomPorts, "ports", "ports range (nmap syntax: eg 1,2-10,11)")
-	flag.BoolVar(&options.ContentLength, "content-length", false, "Content Length")
-	flag.BoolVar(&options.StoreResponse, "store-response", false, "Store Response as domain.txt")
-	flag.StringVar(&options.StoreResponseDir, "store-response-dir", ".", "Store Response Directory (default current directory)")
+	flag.BoolVar(&options.ContentLength, "content-length", false, "Extracts content length")
+	flag.BoolVar(&options.StoreResponse, "sr", false, "Save response to file (default 'output')")
+	flag.StringVar(&options.StoreResponseDir, "srd", "output", "Save response directory")
 	flag.BoolVar(&options.FollowRedirects, "follow-redirects", false, "Follow Redirects")
 	flag.BoolVar(&options.FollowHostRedirects, "follow-host-redirects", false, "Only follow redirects on the same host")
-	flag.StringVar(&options.HttpProxy, "http-proxy", "", "Http Proxy, eg http://127.0.0.1:8080")
+	flag.StringVar(&options.HttpProxy, "http-proxy", "", "HTTP Proxy, eg http://127.0.0.1:8080")
 	flag.BoolVar(&options.JSONOutput, "json", false, "JSON Output")
 	flag.StringVar(&options.InputFile, "l", "", "File containing domains")
 	flag.StringVar(&options.Method, "x", "GET", "Request Method")
@@ -444,10 +486,16 @@ func ParseOptions() *Options {
 	flag.BoolVar(&options.Version, "version", false, "Show version of httpx")
 	flag.BoolVar(&options.Verbose, "verbose", false, "Verbose Mode")
 	flag.BoolVar(&options.NoColor, "no-color", false, "No Color")
-	flag.BoolVar(&options.OutputServerHeader, "web-server", false, "Prints out the Server header content")
+	flag.BoolVar(&options.OutputServerHeader, "web-server", false, "Extracts server header")
 	flag.BoolVar(&options.OutputWebSocket, "websocket", false, "Prints out if the server exposes a websocket")
 	flag.BoolVar(&options.responseInStdout, "response-in-json", false, "Server response directly in the tool output (-json only)")
 	flag.BoolVar(&options.TLSProbe, "tls-probe", false, "Send HTTP probes on the extracted TLS domains")
+	flag.StringVar(&options.RequestURI, "path", "", "Request path/file (example '/api')")
+	flag.BoolVar(&options.OutputContentType, "content-type", false, "Extracts content-type")
+	flag.StringVar(&options.OutputMatchStatusCode, "mc", "", "Match status code")
+	flag.StringVar(&options.OutputMatchStatusCode, "ml", "", "Match content length")
+	flag.StringVar(&options.OutputFilterStatusCode, "fc", "", "Filter status code")
+	flag.StringVar(&options.OutputFilterContentLength, "fl", "", "Filter content length")
 	flag.Parse()
 
 	// Read the inputs and configure the logging
@@ -468,6 +516,20 @@ func ParseOptions() *Options {
 func (options *Options) validateOptions() {
 	if options.InputFile != "" && !fileutil.FileExists(options.InputFile) {
 		gologger.Fatalf("File %s does not exist!\n", options.InputFile)
+	}
+
+	var err error
+	if options.matchStatusCode, err = stringz.StringToSliceInt(options.OutputMatchStatusCode); err != nil {
+		gologger.Fatalf("Invalid value for match status code option: %s\n", err)
+	}
+	if options.matchContentLength, err = stringz.StringToSliceInt(options.OutputMatchContentLength); err != nil {
+		gologger.Fatalf("Invalid value for match content length option: %s\n", err)
+	}
+	if options.filterStatusCode, err = stringz.StringToSliceInt(options.OutputFilterStatusCode); err != nil {
+		gologger.Fatalf("Invalid value for filter status code option: %s\n", err)
+	}
+	if options.filterContentLength, err = stringz.StringToSliceInt(options.OutputFilterContentLength); err != nil {
+		gologger.Fatalf("Invalid value for filter content length option: %s\n", err)
 	}
 }
 
@@ -495,7 +557,7 @@ const banner = `
 `
 
 // Version is the current version of httpx
-const Version = `0.0.7`
+const Version = `0.0.8`
 
 // showBanner is used to show the banner to the user
 func showBanner() {
