@@ -5,6 +5,14 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/coocood/freecache"
+	dns "github.com/projectdiscovery/httpx/common/resolve"
+)
+
+var (
+	dialerHistory *freecache.Cache
+	cache         *Cache
 )
 
 // NoAddressFoundError occurs when no addresses are found for the host
@@ -19,10 +27,12 @@ type DialerFunc func(context.Context, string, string) (net.Conn, error)
 
 // NewDialer gets a new Dialer instance using a resolver cache
 func NewDialer(options Options) (DialerFunc, error) {
-	cache, err := New(options)
+	var err error
+	cache, err = New(options)
 	if err != nil {
 		return nil, err
 	}
+	dialerHistory = freecache.NewCache(options.CacheSize * megaByteBytes)
 	dialer := &net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 10 * time.Second,
@@ -32,22 +42,35 @@ func NewDialer(options Options) (DialerFunc, error) {
 		separator := strings.LastIndex(address, ":")
 
 		// we need to filter out empty records
-		ips, err := cache.Lookup(address[:separator])
-		var finalIps []string
-		for _, ip := range ips {
-			if ip != "" {
-				finalIps = append(finalIps, ip)
-			}
-		}
-		if err != nil || len(finalIps) == 0 {
+		hostname := address[:separator]
+		dnsResult, err := cache.Lookup(hostname)
+		if err != nil || len(dnsResult.IPs) == 0 {
 			return nil, &NoAddressFoundError{}
 		} // Dial to the IPs finally.
-		for _, ip := range ips {
+		for _, ip := range dnsResult.IPs {
 			conn, err = dialer.DialContext(ctx, network, ip+address[separator:])
 			if err == nil {
+				setErr := dialerHistory.Set([]byte(hostname), []byte(ip), 0)
+				if setErr != nil {
+					return nil, err
+				}
 				break
 			}
 		}
 		return
 	}, nil
+}
+
+// GetDialedIP returns the ip dialed by the HTTP client
+func GetDialedIP(hostname string) string {
+	v, err := dialerHistory.Get([]byte(hostname))
+	if err != nil {
+		return ""
+	}
+	return string(v)
+}
+
+// GetDNSData cached by the resolver
+func GetDNSData(hostname string) (*dns.Result, error) {
+	return cache.Lookup(hostname)
 }

@@ -4,10 +4,12 @@ import (
 	"net"
 
 	"github.com/coocood/freecache"
-	dns "github.com/projectdiscovery/httpx/common/resolver"
+	dns "github.com/projectdiscovery/httpx/common/resolve"
 )
 
-// Cache is a strcture for caching DNS lookups
+const megaByteBytes = 1048576
+
+// Cache is a structure for caching DNS lookups
 type Cache struct {
 	dnsClient             Resolver
 	cache                 *freecache.Cache
@@ -49,32 +51,45 @@ func New(options Options) (*Cache, error) {
 	if err != nil {
 		return nil, err
 	}
-	cache := freecache.NewCache(options.CacheSize * 1024 * 1024)
+	cache := freecache.NewCache(options.CacheSize * megaByteBytes)
 	return &Cache{dnsClient: dnsClient, cache: cache, defaultExpirationTime: options.ExpirationTime}, nil
 }
 
 // Lookup a hostname
-func (c *Cache) Lookup(hostname string) ([]string, error) {
+func (c *Cache) Lookup(hostname string) (*dns.Result, error) {
 	if ip := net.ParseIP(hostname); ip != nil {
-		return []string{hostname}, nil
+		return &dns.Result{IPs: []string{hostname}}, nil
 	}
 	hostnameBytes := []byte(hostname)
 	value, err := c.cache.Get(hostnameBytes)
 	if err != nil {
-		if len(err.Error()) != 15 {
+		// continue only if the failure is caused by cache-miss
+		if err != freecache.ErrNotFound {
 			return nil, err
 		}
-		results, err := c.dnsClient.Resolve(hostname)
+		result, resolveErr := c.dnsClient.Resolve(hostname)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		if result.TTL == 0 {
+			result.TTL = c.defaultExpirationTime
+		}
+		b, _ := result.Marshal()
+
+		err = c.cache.Set(hostnameBytes, b, result.TTL)
 		if err != nil {
 			return nil, err
 		}
-		if results.TTL == 0 {
-			results.TTL = c.defaultExpirationTime
-		}
-		c.cache.Set(hostnameBytes, MarshalAddresses(results.IPs), results.TTL)
 
-		return results.IPs, nil
+		return &result, nil
 	}
 
-	return UnmarshalAddresses(value), nil
+	var result dns.Result
+
+	err = result.Unmarshal(value)
+	if err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
